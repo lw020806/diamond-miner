@@ -60,6 +60,10 @@ class Simulator:
     It can simulate:
     - Routing loops
     - What else?
+    TODO: Fix/Handle TTL 0.
+    TODO: Generation/Visualisation with networkx?
+    TODO: Load balancing strategies.
+    TODO: Return links counts per TTL.
     """
 
     links: List[Tuple[Node, Node]]
@@ -105,7 +109,7 @@ class Simulator:
 
         # If the path is longer than the TTL, there is two possible cases:
         # 3) We've reached the destination => same as above
-        # 4) We've reached a load balancer => ICMP TTL Exceeded
+        # 4) We've reached a load balancer => ICMP(v6) TTL Exceeded
         else:
             node = path[probe.ttl]
             if probe.dst_addr == node.address:
@@ -133,7 +137,7 @@ class Simulator:
                 probe_dst_port=0,
                 probe_ttl_l3=probe.ttl,
                 probe_ttl_l4=probe.ttl,
-                reply_protocol=probe.protocol,
+                reply_protocol=Protocol.icmp6 if probe.ipv6 else Protocol.icmp,
                 reply_src_addr=node.address,
                 reply_icmp_type=0 if probe.protocol == Protocol.icmp else 129,
                 reply_icmp_code=0,
@@ -158,7 +162,7 @@ class Simulator:
                 probe_dst_port=probe_dst_port,
                 probe_ttl_l3=probe.ttl,
                 probe_ttl_l4=probe.ttl,
-                reply_protocol=probe.protocol,
+                reply_protocol=Protocol.icmp6 if probe.ipv6 else Protocol.icmp,
                 reply_src_addr=node.address,
                 reply_icmp_type=3 if probe.ipv6 else 11,
                 reply_icmp_code=0,
