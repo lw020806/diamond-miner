@@ -1,78 +1,9 @@
-import hashlib
 import random
-import struct
-import zlib
-from dataclasses import dataclass, field
-from enum import Enum
 from functools import lru_cache
 from ipaddress import IPv6Address
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-
-class Protocol(Enum):
-    icmp = 1
-    icmp6 = 58
-    udp = 17
-
-
-@dataclass(frozen=True)
-class Probe:
-    protocol: Protocol
-    dst_addr: IPv6Address
-    src_port: int
-    dst_port: int
-    ttl: int
-
-    @property
-    def ipv6(self) -> bool:
-        return not self.dst_addr.ipv4_mapped
-
-
-@dataclass(frozen=True)
-class Reply:
-    probe_protocol: Protocol
-    probe_src_addr: IPv6Address
-    probe_dst_addr: IPv6Address
-    probe_src_port: int
-    probe_dst_port: int
-    probe_ttl_l3: int
-    probe_ttl_l4: int
-    reply_protocol: Protocol
-    reply_src_addr: IPv6Address
-    reply_icmp_type: int
-    reply_icmp_code: int
-    reply_ttl: int
-    reply_size: int
-    reply_mpls_labels: List[int]
-    rtt: float
-
-
-def per_flow_hash_lb():
-    # seed = seed or random.randint(0, 2 ** 64 - 1)
-
-    def flow_id(probe: Probe, seed: int) -> int:
-        return zlib.crc32(
-            struct.pack(
-                "BQHHQ",
-                probe.protocol.value,
-                int(probe.dst_addr),
-                probe.src_port,
-                probe.dst_port,
-                seed,
-            )
-        )
-        # return hash(
-        #     (probe.protocol, probe.dst_addr, probe.src_port, probe.dst_port, seed)
-        # )
-
-    return flow_id
-
-
-@dataclass(frozen=True)
-class Node:
-    address: IPv6Address
-    reply_probability: float = 1.0
-    flow_id: Callable[[Probe], int] = field(default_factory=per_flow_hash_lb)
+from diamond_miner.simulator.models import Node, Probe, Protocol, Reply
 
 
 class Simulator:
@@ -103,16 +34,16 @@ class Simulator:
             self.successors.setdefault(near, []).append(far)
 
     @lru_cache(maxsize=2048)
-    def path_for_probe(self, probe: Probe) -> List[Node]:
-        path = [self.SOURCE_NODE]
+    def path_for_probe(self, probe: Probe) -> Tuple[Node, ...]:
+        path: List[Node] = [self.SOURCE_NODE]
         # Stop at TTL 255 in case of routing loops.
         for _ in range(256):
             if successors := self.successors.get(path[-1]):
-                flow_id = path[-1].flow_id(probe, int(path[-1].address))
+                flow_id = path[-1].flow_id(probe)
                 path.append(successors[flow_id % len(successors)])
             else:
                 break
-        return path
+        return tuple(path)
 
     def simulate(self, probe: Probe) -> Optional[Reply]:
         path = self.path_for_probe(probe)
@@ -157,8 +88,8 @@ class Simulator:
                 # We cannot recover the probe "ports" in an echo reply.
                 probe_src_port=0,
                 probe_dst_port=0,
-                probe_ttl_l3=probe.ttl,
-                probe_ttl_l4=probe.ttl,
+                probe_ttl=probe.ttl,
+                quoted_ttl=1,  # TODO: Return the true quoted TTL.
                 reply_protocol=Protocol.icmp6 if probe.ipv6 else Protocol.icmp,
                 reply_src_addr=node.address,
                 reply_icmp_type=0 if probe.protocol == Protocol.icmp else 129,
@@ -182,8 +113,8 @@ class Simulator:
                 probe_dst_addr=probe.dst_addr,
                 probe_src_port=probe.src_port,
                 probe_dst_port=probe_dst_port,
-                probe_ttl_l3=probe.ttl,
-                probe_ttl_l4=probe.ttl,
+                probe_ttl=probe.ttl,
+                quoted_ttl=1,
                 reply_protocol=Protocol.icmp6 if probe.ipv6 else Protocol.icmp,
                 reply_src_addr=node.address,
                 reply_icmp_type=3 if probe.ipv6 else 11,
@@ -193,16 +124,3 @@ class Simulator:
                 reply_mpls_labels=[],
                 rtt=random.random() * 100,
             )
-
-
-if __name__ == "__main__":
-    A = Node(IPv6Address("::1"))
-    B = Node(IPv6Address("::2"))
-    C = Node(IPv6Address("::3"))
-
-    sim = Simulator([(Simulator.SOURCE_NODE, A), (A, B), (B, C)])
-    print(sim.successors)
-    print(sim.path_for_flow(1))
-    print(sim.simulate(Probe(Protocol.icmp, C.address, 24000, 33434, 2)))
-
-# TODO: Random topologies.

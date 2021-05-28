@@ -11,23 +11,23 @@ from aioch import Client
 
 from diamond_miner.database import create_tables, drop_tables, table_name
 from diamond_miner.generator import probe_generator_by_flow
-from diamond_miner.mappers import RandomFlowMapper, SequentialFlowMapper
+from diamond_miner.mappers import SequentialFlowMapper
 from diamond_miner.queries import GetLinks, GetLinksFromView
 from diamond_miner.rounds.mda import mda_probes
-from diamond_miner.simulator import Node, Probe, Protocol, Reply, Simulator
+from diamond_miner.simulator.simulator import Node, Probe, Protocol, Reply, Simulator
 
 
 def random_topology2(
     max_depth: int, max_width: int, seed: int
 ) -> List[Tuple[Node, Node]]:
-    random.seed(seed)
+    rng = random.Random(seed)
     # TODO: non fully connected, reply probability
-    depth = random.randint(2, max_depth)
+    depth = rng.randint(2, max_depth)
     nodes = {0: [Simulator.SOURCE_NODE]}
     i = IPv6Address("::ffff:1.0.0.0")
     for ttl in range(1, depth):
         nodes[ttl] = []
-        width = random.randint(1, max_width)
+        width = rng.randint(1, max_width)
         for node in range(width):
             nodes[ttl].append(Node(i))
             i += 1
@@ -84,13 +84,13 @@ async def insert(
 ) -> None:
     sql = f"""
     INSERT INTO {table_name("results", suffix)} (
+        probe_protocol,
         probe_src_addr,
         probe_dst_addr,
         probe_src_port,
         probe_dst_port,
-        probe_ttl_l3,
-        probe_ttl_l4,
-        probe_protocol,
+        quoted_ttl,
+        probe_ttl,
         reply_src_addr,
         reply_protocol,
         reply_icmp_type,
@@ -127,7 +127,7 @@ async def main() -> None:
     await drop_tables(client, suffix)
     await create_tables(client, suffix)
 
-    sim = Simulator(random_topology2(32, 8, 2021))
+    sim = Simulator(random_topology2(8, 8, 2021))
 
     # Round 1
     gen = probe_generator_by_flow(
