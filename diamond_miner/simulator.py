@@ -1,15 +1,12 @@
+import hashlib
 import random
-from dataclasses import dataclass
+import struct
+import zlib
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 from ipaddress import IPv6Address
-from typing import Dict, List, Optional, Tuple
-
-
-@dataclass(frozen=True)
-class Node:
-    address: IPv6Address
-    reply_probability = 1.0
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 class Protocol(Enum):
@@ -25,10 +22,6 @@ class Probe:
     src_port: int
     dst_port: int
     ttl: int
-
-    @property
-    def flow_id(self) -> int:
-        return int(self.dst_addr) + self.src_port + self.dst_port
 
     @property
     def ipv6(self) -> bool:
@@ -52,6 +45,34 @@ class Reply:
     reply_size: int
     reply_mpls_labels: List[int]
     rtt: float
+
+
+def per_flow_hash_lb():
+    # seed = seed or random.randint(0, 2 ** 64 - 1)
+
+    def flow_id(probe: Probe, seed: int) -> int:
+        return zlib.crc32(
+            struct.pack(
+                "BQHHQ",
+                probe.protocol.value,
+                int(probe.dst_addr),
+                probe.src_port,
+                probe.dst_port,
+                seed,
+            )
+        )
+        # return hash(
+        #     (probe.protocol, probe.dst_addr, probe.src_port, probe.dst_port, seed)
+        # )
+
+    return flow_id
+
+
+@dataclass(frozen=True)
+class Node:
+    address: IPv6Address
+    reply_probability: float = 1.0
+    flow_id: Callable[[Probe], int] = field(default_factory=per_flow_hash_lb)
 
 
 class Simulator:
@@ -82,18 +103,19 @@ class Simulator:
             self.successors.setdefault(near, []).append(far)
 
     @lru_cache(maxsize=2048)
-    def path_for_flow(self, flow_id: int) -> List[Node]:
+    def path_for_probe(self, probe: Probe) -> List[Node]:
         path = [self.SOURCE_NODE]
         # Stop at TTL 255 in case of routing loops.
         for _ in range(256):
             if successors := self.successors.get(path[-1]):
+                flow_id = path[-1].flow_id(probe, int(path[-1].address))
                 path.append(successors[flow_id % len(successors)])
             else:
                 break
         return path
 
     def simulate(self, probe: Probe) -> Optional[Reply]:
-        path = self.path_for_flow(probe.flow_id)
+        path = self.path_for_probe(probe)
 
         # If the path is shorter or equal to the TTL, there is two possible cases:
         # 1) We've reached the destination => ICMP(v6) Echo Reply for ICMP(v6)
