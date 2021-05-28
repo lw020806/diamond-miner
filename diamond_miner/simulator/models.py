@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import hashlib
+from dataclasses import asdict, dataclass
 from enum import Enum
 from ipaddress import IPv6Address
 from typing import List
@@ -17,6 +18,12 @@ class Probe:
     src_port: int
     dst_port: int
     ttl: int
+
+    @classmethod
+    def from_gen(
+        cls, dst_addr: int, src_port: int, dst_port: int, ttl: int, protocol: str
+    ) -> "Probe":
+        return cls(Protocol[protocol], IPv6Address(dst_addr), src_port, dst_port, ttl)
 
     @property
     def ipv6(self) -> bool:
@@ -41,6 +48,14 @@ class Reply:
     reply_mpls_labels: List[int]
     rtt: float
 
+    def to_row(self, round_: int) -> dict:
+        return {
+            **asdict(self),
+            "probe_protocol": self.probe_protocol.value,
+            "reply_protocol": self.reply_protocol.value,
+            "round": round_,
+        }
+
 
 @dataclass(frozen=True)
 class Node:
@@ -50,13 +65,13 @@ class Node:
 
     def flow_id(self, probe: Probe) -> int:
         if self.load_balancing_strategy == "per_flow_hash":
-            return hash(
-                (
-                    self.address,
-                    probe.protocol,
-                    probe.dst_addr,
-                    probe.src_port,
-                    probe.dst_port,
-                )
+            m = hashlib.sha256()
+            m.update(
+                self.address.packed
+                + probe.protocol.value.to_bytes(1, "little")
+                + probe.dst_addr.packed
+                + probe.src_port.to_bytes(2, "little")
+                + probe.dst_port.to_bytes(2, "little")
             )
+            return int.from_bytes(m.digest(), "little")
         raise NotImplementedError
