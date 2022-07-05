@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>diamond_miner.generators.database &mdash; diamond-miner 1.0.0 documentation</title>
+      <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+        <script src="../../../_static/jquery.js"></script>
+        <script src="../../../_static/underscore.js"></script>
+        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../../../_static/doctools.js"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../../../index.html" class="icon icon-home"> diamond-miner
+          </a>
+              <div class="version">
+                1.0.0
+              </div>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../workflow.html">Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../development.html">Development</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../bibliography.html">Bibliography</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../defaults.html">Default Values</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../queries.html">Database Queries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../mappers.html">Flow Mappers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../generators.html">Probe Generators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../rounds.html">MDA</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">diamond-miner</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="../../index.html">Module code</a> &raquo;</li>
+      <li>diamond_miner.generators.database</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for diamond_miner.generators.database</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">collections.abc</span> <span class="kn">import</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Iterator</span>
+<span class="kn">from</span> <span class="nn">ipaddress</span> <span class="kn">import</span> <span class="n">IPv6Address</span>
+
+<span class="kn">from</span> <span class="nn">pych_client</span> <span class="kn">import</span> <span class="n">ClickHouseClient</span>
+
+<span class="kn">from</span> <span class="nn">diamond_miner.defaults</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">DEFAULT_PREFIX_SIZE_V4</span><span class="p">,</span>
+    <span class="n">DEFAULT_PREFIX_SIZE_V6</span><span class="p">,</span>
+    <span class="n">DEFAULT_PROBE_DST_PORT</span><span class="p">,</span>
+    <span class="n">DEFAULT_PROBE_SRC_PORT</span><span class="p">,</span>
+    <span class="n">PROTOCOLS</span><span class="p">,</span>
+    <span class="n">UNIVERSE_SUBSET</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">diamond_miner.logger</span> <span class="kn">import</span> <span class="n">logger</span>
+<span class="kn">from</span> <span class="nn">diamond_miner.mappers</span> <span class="kn">import</span> <span class="n">SequentialFlowMapper</span>
+<span class="kn">from</span> <span class="nn">diamond_miner.queries</span> <span class="kn">import</span> <span class="n">GetProbesDiff</span>
+<span class="kn">from</span> <span class="nn">diamond_miner.typing</span> <span class="kn">import</span> <span class="n">FlowMapper</span><span class="p">,</span> <span class="n">IPNetwork</span><span class="p">,</span> <span class="n">Probe</span>
+
+
+<div class="viewcode-block" id="probe_generator_from_database"><a class="viewcode-back" href="../../../generators.html#diamond_miner.generators.probe_generator_from_database">[docs]</a><span class="k">def</span> <span class="nf">probe_generator_from_database</span><span class="p">(</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">ClickHouseClient</span><span class="p">,</span>
+    <span class="n">measurement_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">round_</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mapper_v4</span><span class="p">:</span> <span class="n">FlowMapper</span> <span class="o">=</span> <span class="n">SequentialFlowMapper</span><span class="p">(</span><span class="n">DEFAULT_PREFIX_SIZE_V4</span><span class="p">),</span>
+    <span class="n">mapper_v6</span><span class="p">:</span> <span class="n">FlowMapper</span> <span class="o">=</span> <span class="n">SequentialFlowMapper</span><span class="p">(</span><span class="n">DEFAULT_PREFIX_SIZE_V6</span><span class="p">),</span>
+    <span class="n">probe_src_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_PROBE_SRC_PORT</span><span class="p">,</span>
+    <span class="n">probe_dst_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_PROBE_DST_PORT</span><span class="p">,</span>
+    <span class="n">probe_ttl_geq</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">probe_ttl_leq</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">subsets</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">IPNetwork</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">UNIVERSE_SUBSET</span><span class="p">,),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Probe</span><span class="p">]:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Doctest, note that this doesn&#39;t randomize probes.</span>
+<span class="sd">    &gt;&gt;&gt; from ipaddress import ip_address</span>
+<span class="sd">    &gt;&gt;&gt; from diamond_miner.insert import insert_probe_counts</span>
+<span class="sd">    &gt;&gt;&gt; from diamond_miner.test import client, create_tables</span>
+<span class="sd">    &gt;&gt;&gt; create_tables(client, &quot;test_probe_gen&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; insert_probe_counts(client, &quot;test_probe_gen&quot;, 1, [(&quot;8.8.0.0/23&quot;, &quot;icmp&quot;, [1, 2], 2)])</span>
+<span class="sd">    &gt;&gt;&gt; probes = list(probe_generator_from_database(client, &quot;test_probe_gen&quot;, 1))</span>
+<span class="sd">    &gt;&gt;&gt; len(probes)</span>
+<span class="sd">    8</span>
+<span class="sd">    &gt;&gt;&gt; (str(ip_address(probes[0][0])), *probes[0][1:])</span>
+<span class="sd">    (&#39;::ffff:808:100&#39;, 24000, 33434, 1, &#39;icmp&#39;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="n">GetProbesDiff</span><span class="p">(</span>
+        <span class="n">round_eq</span><span class="o">=</span><span class="n">round_</span><span class="p">,</span> <span class="n">probe_ttl_geq</span><span class="o">=</span><span class="n">probe_ttl_geq</span><span class="p">,</span> <span class="n">probe_ttl_leq</span><span class="o">=</span><span class="n">probe_ttl_leq</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">execute_iter</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="n">measurement_id</span><span class="p">,</span> <span class="n">subsets</span><span class="o">=</span><span class="n">subsets</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+        <span class="n">dst_prefix_int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">IPv6Address</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;probe_dst_prefix&quot;</span><span class="p">]))</span>
+        <span class="n">mapper</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">mapper_v4</span> <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;probe_dst_prefix&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;::ffff:&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">mapper_v6</span>
+        <span class="p">)</span>
+        <span class="n">protocol_str</span> <span class="o">=</span> <span class="n">PROTOCOLS</span><span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;probe_protocol&quot;</span><span class="p">]]</span>
+
+        <span class="k">for</span> <span class="n">ttl</span><span class="p">,</span> <span class="n">total_probes</span><span class="p">,</span> <span class="n">already_sent</span> <span class="ow">in</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;probes_per_ttl&quot;</span><span class="p">]:</span>
+            <span class="k">for</span> <span class="n">flow_id</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">already_sent</span><span class="p">,</span> <span class="n">total_probes</span><span class="p">):</span>
+                <span class="n">addr_offset</span><span class="p">,</span> <span class="n">port_offset</span> <span class="o">=</span> <span class="n">mapper</span><span class="o">.</span><span class="n">offset</span><span class="p">(</span><span class="n">flow_id</span><span class="p">,</span> <span class="n">dst_prefix_int</span><span class="p">)</span>
+                <span class="n">dst_addr</span> <span class="o">=</span> <span class="n">dst_prefix_int</span> <span class="o">+</span> <span class="n">addr_offset</span>
+                <span class="n">src_port</span> <span class="o">=</span> <span class="n">probe_src_port</span> <span class="o">+</span> <span class="n">port_offset</span>
+                <span class="k">if</span> <span class="n">src_port</span> <span class="o">&gt;</span> <span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">16</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                    <span class="c1"># TEMP: Log prefixes that overflows the port number and skip prefix.</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Port overflow for </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">row</span><span class="p">)</span>
+                    <span class="k">break</span>
+                <span class="k">yield</span> <span class="n">dst_addr</span><span class="p">,</span> <span class="n">src_port</span><span class="p">,</span> <span class="n">probe_dst_port</span><span class="p">,</span> <span class="n">ttl</span><span class="p">,</span> <span class="n">protocol_str</span>  <span class="c1"># type: ignore</span></div>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2021, Sorbonne Université.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
